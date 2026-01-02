@@ -18,8 +18,14 @@ jobs:
       with:
         ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
+    - name: Add EC2 to known hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+        chmod 600 ~/.ssh/known_hosts
+
     - name: Sync files to EC2
       run: |
         rsync -avz --delete \
         --exclude='.git*' \
-        ./ ec2-user@${{ secrets.EC2_HOST }}:/var/www/html/
+        ./ ${{ secrets.EC2_HOST }}:/var/www/html/
