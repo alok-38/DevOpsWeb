@@ -10,14 +10,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
-      - name: Setup SSH key
-        uses: webfactory/ssh-agent@v0.9.1
-        with:
-          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
-
-      - name: Deploy to EC2
+      - name: Set up SSH key
         run: |
-          rsync -avz --delete ./ ec2-user@${{ secrets.EC2_HOST }}:/var/www/html/
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Test SSH Connection
+        run: ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} 'echo "Connected to EC2!"'
+
+      - name: Deploy Files
+        run: |
+          rsync -avz -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" --delete ./ ec2-user@${{ secrets.EC2_HOST }}:/var/www/html/
+
