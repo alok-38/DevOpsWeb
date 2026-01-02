@@ -1,4 +1,4 @@
-name: Deploy Website to EC2
+name: Deploy Docker Website to EC2
 
 on:
   push:
@@ -10,16 +10,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Debug secrets presence
-        run: |
-          echo "HOST=${{ secrets.EC2_HOST }}"
-          echo "USER=${{ secrets.EC2_USER }}"
-          if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
-            echo "SSH KEY IS EMPTY"
-            exit 1
-          fi
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Setup SSH
         run: |
@@ -27,12 +19,22 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
-          ls -l ~/.ssh
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
-            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "whoami"
 
-      - name: Rsync deploy
+      - name: Build Docker image locally
         run: |
-          rsync -avz --delete \
-            --exclude='.git*' \
-            ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/var/www/html/
+          docker build -t devops-website .
+
+      - name: Deploy to EC2
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+          docker pull alpine 2>/dev/null || true
+          docker stop devops-website || true
+          docker rm devops-website || true
+          exit
+          "
+          rsync -avz --exclude='.git*' ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/DevOpsWeb/
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+          cd ~/DevOpsWeb
+          docker build -t devops-website .
+          docker run -d -p 80:80 --name devops-website devops-website
+          "
