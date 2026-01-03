@@ -10,22 +10,72 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout repository
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up SSH key
+      # 2️⃣ Validate secrets (fail early, loudly)
+      - name: Validate required secrets
+        shell: bash
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          set -e
+          if [ -z "${{ secrets.EC2_HOST }}" ]; then
+            echo "EC2_HOST is missing"
+            exit 1
+          fi
+          if [ -z "${{ secrets.EC2_USER }}" ]; then
+            echo "EC2_USER is missing"
+            exit 1
+          fi
+          if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
+            echo "EC2_SSH_KEY is missing"
+            exit 1
+          fi
+          echo "All required secrets are present"
 
-      - name: Sync website to EC2
+      # 3️⃣ Create SSH directory safely
+      - name: Setup SSH directory
+        shell: bash
         run: |
-          rsync -avz --delete --exclude='.git*' ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/DevOpsWeb/
-          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            sudo chown -R nginx:nginx /home/ec2-user/DevOpsWeb;
-            sudo find /home/ec2-user/DevOpsWeb -type d -exec chmod 755 {} \;;
-            sudo find /home/ec2-user/DevOpsWeb -type f -exec chmod 644 {} \;;
-            sudo nginx -t && sudo systemctl reload nginx
-          "
+          set -eux
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+
+      # 4️⃣ Install private SSH key
+      - name: Install SSH key
+        shell: bash
+        run: |
+          set -eux
+          echo "${{ secrets.EC2_SSH_KEY }}" > "$HOME/.ssh/id_rsa"
+          chmod 600 "$HOME/.ssh/id_rsa"
+
+      # 5️⃣ Trust EC2 host key (no interactive prompt)
+      - name: Add EC2 to known_hosts
+        shell: bash
+        run: |
+          set -eux
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> "$HOME/.ssh/known_hosts"
+
+      # 6️⃣ Test SSH connectivity (hard proof)
+      - name: Verify SSH connection
+        shell: bash
+        run: |
+          set -eux
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "whoami && hostname"
+
+      # 7️⃣ Deploy website files to EC2
+      - name: Deploy website via rsync
+        shell: bash
+        run: |
+          set -eux
+          rsync -avz --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            ./ "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/DevOpsWeb/"
+
+      # 8️⃣ Reload Nginx (safe even if unchanged)
+      - name: Reload Nginx on EC2
+        shell: bash
+        run: |
+          set -eux
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "sudo nginx -t && sudo systemctl reload nginx"
