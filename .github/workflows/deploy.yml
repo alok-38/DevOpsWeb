@@ -1,4 +1,4 @@
-name: Deploy Docker Website to EC2
+name: Deploy Website to EC2
 
 on:
   push:
@@ -10,31 +10,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup SSH
+      - name: Set up SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Build Docker image locally
+      - name: Sync website to EC2
         run: |
-          docker build -t devops-website .
-
-      - name: Deploy to EC2
-        run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-          docker pull alpine 2>/dev/null || true
-          docker stop devops-website || true
-          docker rm devops-website || true
-          exit
-          "
-          rsync -avz --exclude='.git*' ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/DevOpsWeb/
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-          cd ~/DevOpsWeb
-          docker build -t devops-website .
-          docker run -d -p 80:80 --name devops-website devops-website
+          rsync -avz --delete --exclude='.git*' ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/DevOpsWeb/
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            sudo chown -R nginx:nginx /home/ec2-user/DevOpsWeb;
+            sudo find /home/ec2-user/DevOpsWeb -type d -exec chmod 755 {} \;;
+            sudo find /home/ec2-user/DevOpsWeb -type f -exec chmod 644 {} \;;
+            sudo nginx -t && sudo systemctl reload nginx
           "
