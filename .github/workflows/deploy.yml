@@ -19,64 +19,56 @@ jobs:
         shell: bash
         run: |
           set -e
-          if [ -z "${{ secrets.EC2_HOST }}" ]; then
-            echo "EC2_HOST is missing"
-            exit 1
-          fi
-          if [ -z "${{ secrets.EC2_USER }}" ]; then
-            echo "EC2_USER is missing"
-            exit 1
-          fi
-          if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
-            echo "EC2_SSH_KEY is missing"
-            exit 1
-          fi
-          echo "All required secrets are present"
+          [ -n "${{ secrets.EC2_HOST }}" ] || { echo "EC2_HOST missing"; exit 1; }
+          [ -n "${{ secrets.EC2_USER }}" ] || { echo "EC2_USER missing"; exit 1; }
+          [ -n "${{ secrets.EC2_SSH_KEY }}" ] || { echo "EC2_SSH_KEY missing"; exit 1; }
+          echo "✅ All required secrets are present"
 
-      # 3️⃣ Create SSH directory safely
-      - name: Setup SSH directory
+      # 3️⃣ Setup SSH
+      - name: Setup SSH
         shell: bash
         run: |
           set -eux
-          mkdir -p "$HOME/.ssh"
-          chmod 700 "$HOME/.ssh"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      # 4️⃣ Install private SSH key
-      - name: Install SSH key
-        shell: bash
-        run: |
-          set -eux
-          echo "${{ secrets.EC2_SSH_KEY }}" > "$HOME/.ssh/id_rsa"
-          chmod 600 "$HOME/.ssh/id_rsa"
-
-      # 5️⃣ Trust EC2 host key (no interactive prompt)
-      - name: Add EC2 to known_hosts
-        shell: bash
-        run: |
-          mkdir -p "$HOME/.ssh"
-          chmod 700 "$HOME/.ssh"
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> "$HOME/.ssh/known_hosts" || true
-
-      # 6️⃣ Test SSH connectivity (hard proof)
+      # 4️⃣ Verify SSH connectivity (hard proof)
       - name: Verify SSH connection
         shell: bash
         run: |
           set -eux
           ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "whoami && hostname"
 
-      # 7️⃣ Deploy website files to EC2
+      # 5️⃣ Ensure destination directory exists (FIX for rsync exit 23)
+      - name: Prepare EC2 destination directory
+        shell: bash
+        run: |
+          set -eux
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "
+            sudo mkdir -p /home/ec2-user/DevOpsWeb &&
+            sudo chown -R ec2-user:ec2-user /home/ec2-user/DevOpsWeb &&
+            sudo chmod 755 /home/ec2-user &&
+            sudo chmod -R 755 /home/ec2-user/DevOpsWeb
+          "
+
+      # 6️⃣ Deploy website files (permission-safe rsync)
       - name: Deploy website via rsync
         shell: bash
         run: |
           set -eux
           rsync -avz --delete \
-            --exclude='.git/' \
+            --exclude='.git*' \
             --exclude='.github/' \
+            --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
             ./ "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/DevOpsWeb/"
 
-      # 8️⃣ Reload Nginx (safe even if unchanged)
+      # 7️⃣ Reload Nginx
       - name: Reload Nginx on EC2
         shell: bash
         run: |
           set -eux
-          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "sudo nginx -t && sudo systemctl reload nginx"
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "sudo nginx -t && sudo systemctl reload nginx"
