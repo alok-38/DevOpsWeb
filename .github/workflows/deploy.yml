@@ -24,25 +24,28 @@ jobs:
           [ -n "${{ secrets.EC2_SSH_KEY }}" ] || { echo "EC2_SSH_KEY missing"; exit 1; }
           echo "✅ All required secrets are present"
 
-      # 3️⃣ Setup SSH
+      # 3️⃣ Setup SSH (SAFE)
       - name: Setup SSH
         shell: bash
         run: |
           set -eux
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
 
-      # 4️⃣ Verify SSH connectivity (hard proof)
+          echo "${{ secrets.EC2_SSH_KEY }}" > "$HOME/.ssh/id_rsa"
+          chmod 600 "$HOME/.ssh/id_rsa"
+
+          # Non-fatal host key scan (network hiccups won't kill pipeline)
+          ssh-keyscan -T 10 -H "${{ secrets.EC2_HOST }}" >> "$HOME/.ssh/known_hosts" || true
+
+      # 4️⃣ Verify SSH connectivity (this MUST succeed)
       - name: Verify SSH connection
         shell: bash
         run: |
           set -eux
           ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "whoami && hostname"
 
-      # 5️⃣ Ensure destination directory exists (FIX for rsync exit 23)
+      # 5️⃣ Ensure destination directory exists
       - name: Prepare EC2 destination directory
         shell: bash
         run: |
@@ -54,7 +57,7 @@ jobs:
             sudo chmod -R 755 /home/ec2-user/DevOpsWeb
           "
 
-      # 6️⃣ Deploy website files (permission-safe rsync)
+      # 6️⃣ Deploy website files
       - name: Deploy website via rsync
         shell: bash
         run: |
