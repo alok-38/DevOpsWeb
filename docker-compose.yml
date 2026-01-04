@@ -1,10 +1,10 @@
 version: "3.9"
 
 services:
-  frontend:
+  devopsweb:
     build: .
-    container_name: devops-frontend
+    image: devopsweb:latest
+    container_name: devopsweb
+    restart: unless-stopped
     ports:
       - "8080:80"
-    restart: always
-
